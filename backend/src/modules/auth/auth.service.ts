@@ -379,7 +379,6 @@ export class AuthService {
    * Handle OIDC callback and authenticate user
    */
   async handleOIDCCallback(claims: any, issuer: string): Promise<AuthResponseDto> {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     const user = await this.oidcService.findOrCreateUserFromOIDC(claims as OIDCClaims, issuer);
 
     if (!user) {
@@ -408,7 +407,7 @@ export class AuthService {
     });
 
     // Update refresh token in database
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+
     await this.usersService.updateRefreshToken(String(user.id), refreshToken);
 
     return {

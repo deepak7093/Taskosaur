@@ -2,18 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - openid-client types are not perfect
-import { Issuer, Client } from 'openid-client';
+import { Issuer } from 'openid-client';
 
 @Injectable()
 export class OIDCStrategy {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private client: any = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   private issuer: any = null;
 
   constructor(private readonly configService: ConfigService) {}
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getClient(): Promise<any> {
     if (this.client) {
       return this.client;
