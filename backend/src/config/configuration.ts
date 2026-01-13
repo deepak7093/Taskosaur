@@ -15,4 +15,12 @@ export default registerAs('app', () => ({
     version: '1.0.0',
     path: 'api/docs',
   },
+  oidc: {
+    enabled: process.env.OIDC_ENABLED === 'true',
+    issuer: process.env.OIDC_ISSUER || '',
+    clientId: process.env.OIDC_CLIENT_ID || '',
+    clientSecret: process.env.OIDC_CLIENT_SECRET || '',
+    callbackUrl: process.env.OIDC_CALLBACK_URL || '',
+    scope: process.env.OIDC_SCOPE || 'openid profile email',
+  },
 }));

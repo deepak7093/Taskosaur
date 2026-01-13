@@ -24,6 +24,12 @@ import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { SetupService } from './services/setup.service';
 import { AccessControlService, AccessResult } from 'src/common/access-control.utils';
+import { OIDCStrategy } from './strategies/oidc.strategy';
+import { OIDCConfigDto } from './dto/oidc-config.dto';
+import { Res } from '@nestjs/common';
+import { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 export enum ScopeType {
   ORGANIZATION = 'organization',
   WORKSPACE = 'workspace',
@@ -33,11 +39,29 @@ export enum ScopeType {
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
+  private readonly oidcStateStore = new Map<string, { timestamp: number }>();
+
   constructor(
     private readonly authService: AuthService,
     private readonly setupService: SetupService,
     private readonly accessControlService: AccessControlService,
-  ) {}
+    private readonly oidcStrategy: OIDCStrategy,
+    private readonly configService: ConfigService,
+  ) {
+    // Clean up expired states every 10 minutes
+    setInterval(
+      () => {
+        const now = Date.now();
+        for (const [state, data] of this.oidcStateStore.entries()) {
+          if (now - data.timestamp > 10 * 60 * 1000) {
+            // 10 minutes
+            this.oidcStateStore.delete(state);
+          }
+        }
+      },
+      10 * 60 * 1000,
+    );
+  }
 
   @Public()
   @Post('login')
@@ -299,5 +323,122 @@ export class AuthController {
   })
   async setupSuperAdmin(@Body() setupAdminDto: SetupAdminDto): Promise<AuthResponseDto> {
     return this.setupService.setupSuperAdmin(setupAdminDto);
+  }
+
+  @Public()
+  @Get('oidc/config')
+  @ApiOperation({ summary: 'Get OIDC configuration' })
+  @ApiResponse({
+    status: 200,
+    description: 'OIDC configuration',
+    type: OIDCConfigDto,
+  })
+  getOIDCConfig(): OIDCConfigDto {
+    const enabled = this.configService.get<boolean>('app.oidc.enabled') || false;
+    const issuer = this.configService.get<string>('app.oidc.issuer') || '';
+
+    let providerName: string | undefined;
+    if (enabled && issuer) {
+      try {
+        const url = new URL(issuer);
+        const hostname = url.hostname;
+        if (hostname.includes('google')) providerName = 'Google';
+        else if (hostname.includes('microsoft') || hostname.includes('login.microsoftonline.com'))
+          providerName = 'Microsoft';
+        else if (hostname.includes('okta')) providerName = 'Okta';
+        else if (hostname.includes('auth0')) providerName = 'Auth0';
+        else providerName = 'OIDC';
+      } catch {
+        providerName = 'OIDC';
+      }
+    }
+
+    return {
+      enabled,
+      providerName: enabled ? providerName : undefined,
+    };
+  }
+
+  @Public()
+  @Get('oidc/login')
+  @ApiOperation({ summary: 'Initiate OIDC login' })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirect to OIDC provider',
+  })
+  async initiateOIDCLogin(@Res() res: Response) {
+    const enabled = this.configService.get<boolean>('app.oidc.enabled') || false;
+    if (!enabled) {
+      return res.status(404).json({ message: 'OIDC is not enabled' });
+    }
+
+    try {
+      const callbackUrl = this.configService.get<string>('app.oidc.callbackUrl') || '';
+
+      // Generate state parameter for CSRF protection
+      const state = crypto.randomBytes(32).toString('hex');
+      this.oidcStateStore.set(state, { timestamp: Date.now() });
+
+      const authUrl = await this.oidcStrategy.getAuthorizationUrl(callbackUrl, state);
+      return res.redirect(authUrl);
+    } catch (error) {
+      console.error('OIDC login initiation error:', error);
+      return res.status(500).json({ message: 'Failed to initiate OIDC login' });
+    }
+  }
+
+  @Public()
+  @Get('oidc/callback')
+  @ApiOperation({ summary: 'Handle OIDC callback' })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirect to frontend with tokens',
+  })
+  async handleOIDCCallback(
+    @Res() res: Response,
+    @Query('code') code: string,
+    @Query('state') state: string,
+  ) {
+    const enabled = this.configService.get<boolean>('app.oidc.enabled') || false;
+    if (!enabled) {
+      return res.status(404).json({ message: 'OIDC is not enabled' });
+    }
+
+    try {
+      // Verify state parameter
+      const stateData = this.oidcStateStore.get(state || '');
+      if (!state || !stateData) {
+        const frontendUrl =
+          this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+        return res.redirect(`${frontendUrl}/login?error=invalid_state`);
+      }
+
+      // Clear state from store
+      this.oidcStateStore.delete(state);
+
+      const callbackUrl = this.configService.get<string>('app.oidc.callbackUrl') || '';
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+      const issuer = this.configService.get<string>('app.oidc.issuer') || '';
+
+      // Exchange code for tokens
+      const { claims } = await this.oidcStrategy.callback(callbackUrl, { code, state });
+
+      // Authenticate user
+      const authResponse = await this.authService.handleOIDCCallback(claims, issuer);
+
+      // Redirect to frontend with tokens
+      const redirectUrl = new URL(`${frontendUrl}/auth/oidc/callback`);
+      redirectUrl.searchParams.set('access_token', authResponse.access_token);
+      if (authResponse.refresh_token) {
+        redirectUrl.searchParams.set('refresh_token', authResponse.refresh_token);
+      }
+
+      return res.redirect(redirectUrl.toString());
+    } catch (error: unknown) {
+      console.error('OIDC callback error:', error);
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+      const errorMessage = error instanceof Error ? error.message : 'oidc_auth_failed';
+      return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(errorMessage)}`);
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Eye, EyeOff, Loader2, Mail, Lock, ArrowRight, Sparkle } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
+import { authApi } from "@/utils/api/authApi";
 interface FormData {
   email: string;
   password: string;
@@ -30,6 +31,20 @@ export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [oidcEnabled, setOidcEnabled] = useState(false);
+  const [oidcProviderName, setOidcProviderName] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    // Check if OIDC is enabled
+    authApi.getOIDCConfig().then((config) => {
+      setOidcEnabled(config.enabled);
+      setOidcProviderName(config.providerName);
+    });
+  }, []);
+
+  const handleOIDCLogin = () => {
+    authApi.initiateOIDCLogin();
+  };
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -226,6 +241,34 @@ export function LoginForm() {
           </Button>
         </motion.div>
       </form>
+
+      {/* OIDC Login Button */}
+      {oidcEnabled && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.45 }}
+          className="mt-4"
+        >
+          <div className="login-divider-container mb-4">
+            <div className="login-divider-line">
+              <div className="login-divider-border" />
+            </div>
+            <div className="login-divider-text-container">
+              <span className="login-divider-text">Or</span>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleOIDCLogin}
+            className="w-full login-submit-button"
+          >
+            Continue with {oidcProviderName || "OIDC"}
+            <ArrowRight className="login-button-arrow" />
+          </Button>
+        </motion.div>
+      )}
 
       {/* Divider */}
       <motion.div

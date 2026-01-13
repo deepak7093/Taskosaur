@@ -38,6 +38,14 @@ model User {
   // User Source Tracking
   source UserSource @default(MANUAL)
 
+  // OIDC Authentication
+  oidcProvider String? @map("oidc_provider")
+  oidcSub      String? @map("oidc_sub")
+  oidcIssuer   String? @map("oidc_issuer")
+
+  @@unique([oidcProvider, oidcSub])
+  @@index([oidcProvider, oidcSub])
+
   activityLogs             ActivityLog[]
   createdAutomationRules   AutomationRule[]     @relation("AutomationRuleCreatedBy")
   updatedAutomationRules   AutomationRule[]     @relation("AutomationRuleUpdatedBy")

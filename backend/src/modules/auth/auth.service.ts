@@ -16,6 +16,7 @@ import * as crypto from 'crypto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { SYSTEM_USER_ID } from '../../common/constants';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { OIDCService, OIDCClaims } from './services/oidc.service';
 
 @Injectable()
 export class AuthService {
@@ -25,6 +26,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
+    private readonly oidcService: OIDCService,
   ) {}
 
   async validateUser(email: string, password: string) {
@@ -371,5 +373,58 @@ export class AuthService {
 
       throw new BadRequestException('Failed to reset password');
     }
+  }
+
+  /**
+   * Handle OIDC callback and authenticate user
+   */
+  async handleOIDCCallback(claims: any, issuer: string): Promise<AuthResponseDto> {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    const user = await this.oidcService.findOrCreateUserFromOIDC(claims as OIDCClaims, issuer);
+
+    if (!user) {
+      throw new UnauthorizedException('Failed to authenticate via OIDC');
+    }
+
+    // Prevent system user from authenticating
+    if (user.id === SYSTEM_USER_ID) {
+      throw new UnauthorizedException('System user cannot be used for authentication');
+    }
+
+    // Only active users can login
+    if (user.status !== 'ACTIVE') {
+      throw new UnauthorizedException('User account is not active');
+    }
+
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+    const refreshToken = this.jwtService.sign(payload, {
+      expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d') as any,
+    });
+
+    // Update refresh token in database
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    await this.usersService.updateRefreshToken(String(user.id), refreshToken);
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        username: user.username || undefined,
+        role: user.role,
+        avatar: user.avatar || undefined,
+        bio: user.bio || undefined,
+        mobileNumber: user.mobileNumber || undefined,
+      },
+    };
   }
 }

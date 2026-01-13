@@ -11,6 +11,8 @@ import { UsersModule } from '../users/users.module';
 import { EmailModule } from '../email/email.module';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { AccessControlService } from 'src/common/access-control.utils';
+import { OIDCStrategy } from './strategies/oidc.strategy';
+import { OIDCService } from './services/oidc.service';
 
 @Module({
   imports: [
@@ -30,7 +32,15 @@ import { AccessControlService } from 'src/common/access-control.utils';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, LocalStrategy, SetupService, AccessControlService],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    LocalStrategy,
+    SetupService,
+    AccessControlService,
+    OIDCStrategy,
+    OIDCService,
+  ],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

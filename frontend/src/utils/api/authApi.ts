@@ -209,4 +209,23 @@ export const authApi = {
 
     return response.data;
   },
+
+  getOIDCConfig: async (): Promise<{ enabled: boolean; providerName?: string }> => {
+    try {
+      const response = await api.get<{ enabled: boolean; providerName?: string }>("/auth/oidc/config");
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching OIDC config:", error);
+      return { enabled: false };
+    }
+  },
+
+  initiateOIDCLogin: (): void => {
+    // Redirect to backend OIDC login endpoint
+    if (typeof window !== "undefined") {
+      // Use the API base URL (already includes /api)
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000/api";
+      window.location.href = `${apiBaseUrl}/auth/oidc/login`;
+    }
+  },
 };
